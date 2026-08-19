@@ -201,6 +201,9 @@ export function PatientDetailSidebar({
               <Info label="Téléphone" value={patient.phone} />
               <Info label="Genre" value={patient.gender} />
               <div className="col-span-2">
+                <Info label="Adresse" value={patient.address} />
+              </div>
+              <div className="col-span-2">
                 <Info
                   label="Antécédents"
                   value={patient.medical_history || "Aucun renseignement"}
@@ -309,6 +312,17 @@ export function PatientDetailSidebar({
                       <p className="mt-0.5 text-xs text-slate-400">
                         {formatDate(commande.created_at)}
                       </p>
+                      {(commande.disease_to_treat || commande.ordered_by_name) && (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {commande.ordered_by_name
+                            ? `Par ${commande.ordered_by_name}`
+                            : ""}
+                          {commande.ordered_by_name && commande.disease_to_treat
+                            ? " · "
+                            : ""}
+                          {commande.disease_to_treat || ""}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="font-semibold text-slate-900">

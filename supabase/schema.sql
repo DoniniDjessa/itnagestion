@@ -13,12 +13,16 @@ create table if not exists public.patients (
   birth_date date,
   gender text,
   medical_history text,
-  picture_url text
+  picture_url text,
+  address text
 );
 
 -- Safe if table already existed without picture_url
 alter table public.patients
   add column if not exists picture_url text;
+
+alter table public.patients
+  add column if not exists address text;
 
 create table if not exists public.commandes (
   id uuid primary key default gen_random_uuid(),
@@ -27,8 +31,20 @@ create table if not exists public.commandes (
   patient_id uuid not null references public.patients (id) on delete restrict,
   items jsonb not null default '[]'::jsonb,
   total_amount numeric(12, 2) not null default 0,
-  status text not null default 'En attente'
+  status text not null default 'En attente',
+  ordered_by_name text,
+  address text,
+  delivery_number text,
+  disease_to_treat text,
+  details text
 );
+
+alter table public.commandes
+  add column if not exists ordered_by_name text,
+  add column if not exists address text,
+  add column if not exists delivery_number text,
+  add column if not exists disease_to_treat text,
+  add column if not exists details text;
 
 create index if not exists commandes_patient_id_idx on public.commandes (patient_id);
 create index if not exists commandes_status_idx on public.commandes (status);

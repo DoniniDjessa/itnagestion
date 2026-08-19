@@ -18,6 +18,7 @@ const emptyForm: PatientInsert = {
   gender: "Femme",
   medical_history: "",
   picture_url: null,
+  address: "",
 };
 
 const avatarColors = [
@@ -74,7 +75,7 @@ export function PatientsView() {
     const q = search.trim().toLowerCase();
     if (!q) return patients;
     return patients.filter((p) =>
-      [p.first_name, p.last_name, p.phone, p.email, p.gender]
+      [p.first_name, p.last_name, p.phone, p.email, p.gender, p.address]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(q)),
     );
@@ -106,6 +107,7 @@ export function PatientsView() {
       gender: patient.gender ?? "Femme",
       medical_history: patient.medical_history ?? "",
       picture_url: patient.picture_url,
+      address: patient.address ?? "",
     });
     setPictureFile(null);
     setRemovePicture(false);
@@ -156,6 +158,7 @@ export function PatientsView() {
       gender: form.gender || null,
       medical_history: form.medical_history || null,
       picture_url,
+      address: form.address || null,
     };
 
     const result = editing
@@ -448,6 +451,18 @@ export function PatientsView() {
                       setForm((f) => ({ ...f, phone: e.target.value }))
                     }
                     className="field"
+                  />
+                </Field>
+                <Field label="Adresse">
+                  <textarea
+                    required
+                    rows={2}
+                    value={form.address ?? ""}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, address: e.target.value }))
+                    }
+                    className="field resize-none"
+                    placeholder="Quartier, avenue, commune…"
                   />
                 </Field>
                 <Field label="Email">

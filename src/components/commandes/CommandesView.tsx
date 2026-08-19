@@ -60,6 +60,11 @@ export function CommandesView() {
   const [statusDraft, setStatusDraft] = useState<CommandeStatus>("En attente");
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [patientId, setPatientId] = useState("");
+  const [orderedByName, setOrderedByName] = useState("");
+  const [orderAddress, setOrderAddress] = useState("");
+  const [deliveryNumber, setDeliveryNumber] = useState("");
+  const [diseaseToTreat, setDiseaseToTreat] = useState("");
+  const [orderDetails, setOrderDetails] = useState("");
   const [items, setItems] = useState<ItemDraft[]>([emptyItem()]);
 
   async function load() {
@@ -130,9 +135,22 @@ export function CommandesView() {
     });
   }
 
+  function applyPatient(id: string) {
+    setPatientId(id);
+    const patient = patients.find((p) => p.id === id);
+    if (!patient) return;
+    setOrderedByName(patientFullName(patient.first_name, patient.last_name));
+    setOrderAddress(patient.address ?? "");
+  }
+
   function resetOrderForm() {
     setEditingOrder(null);
     setPatientId("");
+    setOrderedByName("");
+    setOrderAddress("");
+    setDeliveryNumber("");
+    setDiseaseToTreat("");
+    setOrderDetails("");
     setItems([emptyItem()]);
   }
 
@@ -145,6 +163,11 @@ export function CommandesView() {
     if (!isOrderEditable(commande.status)) return;
     setEditingOrder(commande);
     setPatientId(commande.patient_id);
+    setOrderedByName(commande.ordered_by_name ?? "");
+    setOrderAddress(commande.address ?? "");
+    setDeliveryNumber(commande.delivery_number ?? "");
+    setDiseaseToTreat(commande.disease_to_treat ?? "");
+    setOrderDetails(commande.details ?? "");
     setItems(
       Array.isArray(commande.items) && commande.items.length
         ? commande.items.map((i) => ({
@@ -238,6 +261,11 @@ export function CommandesView() {
           patient_id: patientId,
           items: payloadItems,
           total_amount: totalAmount,
+          ordered_by_name: orderedByName.trim() || null,
+          address: orderAddress.trim() || null,
+          delivery_number: deliveryNumber.trim() || null,
+          disease_to_treat: diseaseToTreat.trim() || null,
+          details: orderDetails.trim() || null,
         })
         .eq("id", editingOrder.id);
 
@@ -257,6 +285,11 @@ export function CommandesView() {
         items: payloadItems,
         total_amount: totalAmount,
         status: "En attente",
+        ordered_by_name: orderedByName.trim() || null,
+        address: orderAddress.trim() || null,
+        delivery_number: deliveryNumber.trim() || null,
+        disease_to_treat: diseaseToTreat.trim() || null,
+        details: orderDetails.trim() || null,
       });
 
       setSaving(false);
@@ -322,6 +355,15 @@ export function CommandesView() {
       </div>
 
       <div className="space-y-3">
+        <div className="hidden grid-cols-[1fr_1.2fr_0.9fr_0.8fr_1fr_88px] gap-3 px-5 text-xs font-medium uppercase tracking-wide text-slate-400 lg:grid">
+          <span>Référence</span>
+          <span>Patient</span>
+          <span>Date</span>
+          <span>Montant</span>
+          <span>Statut</span>
+          <span className="text-right">Action</span>
+        </div>
+
         {loading && (
           <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400">
             Chargement…
@@ -339,34 +381,42 @@ export function CommandesView() {
           return (
             <div
               key={commande.id}
-              className="table-card grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr_0.9fr_0.8fr_0.9fr_auto]"
+              role="button"
+              tabIndex={0}
+              onClick={() => openOrder(commande)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openOrder(commande);
+                }
+              }}
+              className="table-card w-full cursor-pointer grid-cols-1 text-left lg:grid-cols-[1fr_1.2fr_0.9fr_0.8fr_1fr_88px]"
             >
-              <button
-                type="button"
-                onClick={() => openOrder(commande)}
-                className="contents text-left"
+              <span className="min-w-0 truncate font-semibold">
+                {commande.reference_id}
+              </span>
+              <span className="muted min-w-0 truncate text-sm text-slate-600">
+                {commande.patients
+                  ? patientFullName(
+                      commande.patients.first_name,
+                      commande.patients.last_name,
+                    )
+                  : "—"}
+              </span>
+              <span className="muted text-sm text-slate-600">
+                {formatDate(commande.created_at)}
+              </span>
+              <span className="font-semibold tabular-nums">
+                {formatCurrency(Number(commande.total_amount))}
+              </span>
+              <span className="inline-flex items-center gap-2 text-sm">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
+                <span className="truncate">{meta.label}</span>
+              </span>
+              <div
+                className="flex items-center justify-end gap-1"
+                onClick={(e) => e.stopPropagation()}
               >
-                <span className="font-semibold">{commande.reference_id}</span>
-                <span className="muted text-sm text-slate-600">
-                  {commande.patients
-                    ? patientFullName(
-                        commande.patients.first_name,
-                        commande.patients.last_name,
-                      )
-                    : "—"}
-                </span>
-                <span className="muted text-sm text-slate-600">
-                  {formatDate(commande.created_at)}
-                </span>
-                <span className="font-semibold">
-                  {formatCurrency(Number(commande.total_amount))}
-                </span>
-                <span className="inline-flex items-center gap-2 text-sm">
-                  <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
-                  {meta.label}
-                </span>
-              </button>
-              <div className="flex items-center justify-end gap-1">
                 {mutable && (
                   <>
                     <button
@@ -389,6 +439,7 @@ export function CommandesView() {
                 )}
                 <button
                   type="button"
+                  title="Ouvrir"
                   onClick={() => openOrder(commande)}
                   className="rounded-lg p-1.5 text-slate-400 hover:bg-white/20"
                 >
@@ -432,6 +483,38 @@ export function CommandesView() {
                       : "—"}
                   </span>
                 </p>
+                <p className="mt-1">
+                  Commandé par :{" "}
+                  <span className="font-medium text-slate-900">
+                    {selected.ordered_by_name || "—"}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  Adresse :{" "}
+                  <span className="font-medium text-slate-900">
+                    {selected.address || "—"}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  N° de livraison :{" "}
+                  <span className="font-medium text-slate-900">
+                    {selected.delivery_number || "—"}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  Maladie à traiter :{" "}
+                  <span className="font-medium text-slate-900">
+                    {selected.disease_to_treat || "—"}
+                  </span>
+                </p>
+                {selected.details && (
+                  <p className="mt-1">
+                    Détails :{" "}
+                    <span className="font-medium text-slate-900">
+                      {selected.details}
+                    </span>
+                  </p>
+                )}
                 <p className="mt-1">
                   Total :{" "}
                   <span className="font-semibold text-slate-900">
@@ -555,7 +638,7 @@ export function CommandesView() {
                 <select
                   required
                   value={patientId}
-                  onChange={(e) => setPatientId(e.target.value)}
+                  onChange={(e) => applyPatient(e.target.value)}
                   className="field"
                 >
                   <option value="">Sélectionner un patient</option>
@@ -565,6 +648,72 @@ export function CommandesView() {
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700">
+                  Nom de celui qui a commandé
+                </span>
+                <input
+                  required
+                  value={orderedByName}
+                  onChange={(e) => setOrderedByName(e.target.value)}
+                  className="field"
+                  placeholder="Nom et prénom"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700">
+                  Adresse
+                </span>
+                <textarea
+                  required
+                  rows={2}
+                  value={orderAddress}
+                  onChange={(e) => setOrderAddress(e.target.value)}
+                  className="field resize-none"
+                  placeholder="Adresse de livraison"
+                />
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">
+                    Numéro de livraison
+                  </span>
+                  <input
+                    required
+                    value={deliveryNumber}
+                    onChange={(e) => setDeliveryNumber(e.target.value)}
+                    className="field"
+                    placeholder="Téléphone ou n° de suivi"
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">
+                    Maladie à traiter
+                  </span>
+                  <input
+                    required
+                    value={diseaseToTreat}
+                    onChange={(e) => setDiseaseToTreat(e.target.value)}
+                    className="field"
+                  />
+                </label>
+              </div>
+
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700">
+                  Détails
+                </span>
+                <textarea
+                  rows={3}
+                  value={orderDetails}
+                  onChange={(e) => setOrderDetails(e.target.value)}
+                  className="field resize-none"
+                  placeholder="Précisions, consignes de livraison…"
+                />
               </label>
 
               <div className="space-y-3">

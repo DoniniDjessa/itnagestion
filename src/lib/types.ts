@@ -9,6 +9,7 @@ export type Patient = {
   gender: string | null;
   medical_history: string | null;
   picture_url: string | null;
+  address: string | null;
 };
 
 export type OrderItem = {
@@ -46,6 +47,11 @@ export type Commande = {
   items: OrderItem[];
   total_amount: number;
   status: CommandeStatus | string;
+  ordered_by_name: string | null;
+  address: string | null;
+  delivery_number: string | null;
+  disease_to_treat: string | null;
+  details: string | null;
   patients?: Pick<Patient, "id" | "first_name" | "last_name"> | null;
 };
 
@@ -77,6 +83,11 @@ export type CommandeInsert = {
   items: OrderItem[];
   total_amount: number;
   status?: string;
+  ordered_by_name?: string | null;
+  address?: string | null;
+  delivery_number?: string | null;
+  disease_to_treat?: string | null;
+  details?: string | null;
 };
 
 /** Commande encore modifiable / supprimable */
