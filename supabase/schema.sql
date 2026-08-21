@@ -14,7 +14,14 @@ create table if not exists public.patients (
   gender text,
   medical_history text,
   picture_url text,
-  address text
+  address text,
+  city text,
+  quartier text,
+  allergies text,
+  blood_type text,
+  emergency_contact text,
+  emergency_phone text,
+  photos jsonb not null default '[]'::jsonb
 );
 
 -- Safe if table already existed without picture_url
@@ -23,6 +30,19 @@ alter table public.patients
 
 alter table public.patients
   add column if not exists address text;
+
+alter table public.patients
+  add column if not exists city text,
+  add column if not exists commune text,
+  add column if not exists quartier text,
+  add column if not exists allergies text,
+  add column if not exists blood_type text,
+  add column if not exists emergency_contact text,
+  add column if not exists emergency_phone text,
+  add column if not exists photos jsonb not null default '[]'::jsonb;
+
+create index if not exists patients_city_idx on public.patients (city);
+create index if not exists patients_quartier_idx on public.patients (quartier);
 
 create table if not exists public.commandes (
   id uuid primary key default gen_random_uuid(),
@@ -63,11 +83,15 @@ create table if not exists public.visites (
   diagnosis text,
   treatment text,
   notes text,
-  status text not null default 'Terminée'
+  status text not null default 'Terminée',
+  case_status text
 );
 
 create index if not exists visites_patient_id_idx on public.visites (patient_id);
 create index if not exists visites_visit_date_idx on public.visites (visit_date desc);
+
+alter table public.visites
+  add column if not exists case_status text;
 
 create table if not exists public.produits (
   id uuid primary key default gen_random_uuid(),

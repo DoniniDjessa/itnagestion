@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Package, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Camera, Package, Pencil, Plus, Trash2, X } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import {
   deleteStorageFile,
@@ -9,6 +9,11 @@ import {
 } from "@/lib/storage";
 import type { Produit, ProduitInsert } from "@/lib/types";
 import { formatCurrency } from "@/lib/format";
+import { usePagination } from "@/hooks/usePagination";
+import { PageLoader } from "@/components/ui/NiceLoader";
+import { Pagination } from "@/components/ui/Pagination";
+import { SummaryKpis } from "@/components/ui/SummaryKpis";
+import { FilterToolbar } from "@/components/ui/FilterToolbar";
 
 const emptyForm: ProduitInsert = {
   name: "",
@@ -22,6 +27,7 @@ const emptyForm: ProduitInsert = {
 export function ProduitsView() {
   const [produits, setProduits] = useState<Produit[]>([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,13 +66,60 @@ export function ProduitsView() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return produits;
-    return produits.filter((p) =>
-      [p.name, p.code, String(p.price), p.description]
+    return produits.filter((p) => {
+      if (statusFilter === "active" && !p.active) return false;
+      if (statusFilter === "inactive" && p.active) return false;
+      if (!q) return true;
+      return [p.name, p.code, String(p.price), p.description]
         .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
-    );
-  }, [produits, search]);
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [produits, search, statusFilter]);
+
+  const productKpis = useMemo(() => {
+    const active = filtered.filter((p) => p.active).length;
+    const avg =
+      filtered.length > 0
+        ? filtered.reduce((s, p) => s + Number(p.price || 0), 0) /
+          filtered.length
+        : 0;
+    return [
+      {
+        label: "Produits",
+        value: String(filtered.length),
+        iconSrc: "/icons/kpi-products.svg",
+        tone: "blue" as const,
+      },
+      {
+        label: "Actifs",
+        value: String(active),
+        iconSrc: "/icons/kpi-active.svg",
+        tone: "emerald" as const,
+      },
+      {
+        label: "Inactifs",
+        value: String(filtered.length - active),
+        iconSrc: "/icons/kpi-inactive.svg",
+        tone: "amber" as const,
+      },
+      {
+        label: "Prix moyen",
+        value: formatCurrency(avg),
+        iconSrc: "/icons/kpi-money.svg",
+        tone: "violet" as const,
+      },
+    ];
+  }, [filtered]);
+
+  const {
+    page,
+    setPage,
+    totalPages,
+    pageItems,
+    total,
+    from,
+    to,
+  } = usePagination(filtered, 9);
 
   function resetForm() {
     setEditing(null);
@@ -211,23 +264,30 @@ export function ProduitsView() {
         </div>
       )}
 
-      <div className="relative max-w-md">
-        <Search
-          strokeWidth={1.75}
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-        />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Nom, code, prix…"
-          className="w-full rounded-2xl border-0 bg-white py-3 pl-10 pr-4 text-sm shadow-[0_8px_24px_rgba(15,23,42,0.04)] outline-none ring-emerald-500/20 focus:ring-4"
-        />
-      </div>
+      <SummaryKpis items={productKpis} />
+
+      <FilterToolbar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Nom, code, prix…"
+        selects={[
+          {
+            id: "status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: "all", label: "Tous les statuts" },
+              { value: "active", label: "Actifs" },
+              { value: "inactive", label: "Inactifs" },
+            ],
+          },
+        ]}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {loading && (
-          <div className="col-span-full rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400">
-            Chargement…
+          <div className="col-span-full">
+            <PageLoader label="Chargement des produits…" />
           </div>
         )}
         {!loading && filtered.length === 0 && (
@@ -236,7 +296,7 @@ export function ProduitsView() {
           </div>
         )}
 
-        {filtered.map((product) => (
+        {pageItems.map((product) => (
           <article
             key={product.id}
             className="flex gap-4 rounded-3xl bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
@@ -298,6 +358,18 @@ export function ProduitsView() {
           </article>
         ))}
       </div>
+
+      {!loading && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          from={from}
+          to={to}
+          onPageChange={setPage}
+          label="produits"
+        />
+      )}
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-[1px]">

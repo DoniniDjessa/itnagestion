@@ -1,3 +1,16 @@
+export type PatientPhoto = {
+  url: string;
+  path?: string;
+  caption?: string | null;
+  created_at: string;
+};
+
+export type CaseStatus =
+  | "Actif"
+  | "Guéri"
+  | "Chronique"
+  | "Surveillance";
+
 export type Patient = {
   id: string;
   created_at: string;
@@ -10,6 +23,14 @@ export type Patient = {
   medical_history: string | null;
   picture_url: string | null;
   address: string | null;
+  city: string | null;
+  commune: string | null;
+  quartier: string | null;
+  allergies: string | null;
+  blood_type: string | null;
+  emergency_contact: string | null;
+  emergency_phone: string | null;
+  photos: PatientPhoto[] | null;
 };
 
 export type OrderItem = {
@@ -52,7 +73,10 @@ export type Commande = {
   delivery_number: string | null;
   disease_to_treat: string | null;
   details: string | null;
-  patients?: Pick<Patient, "id" | "first_name" | "last_name"> | null;
+  patients?: Pick<
+    Patient,
+    "id" | "first_name" | "last_name" | "city" | "commune" | "quartier"
+  > | null;
 };
 
 export type VisitStatus = "Planifiée" | "En cours" | "Terminée";
@@ -71,6 +95,7 @@ export type Visite = {
   treatment: string | null;
   notes: string | null;
   status: VisitStatus | string;
+  case_status: CaseStatus | string | null;
 };
 
 export type VisiteInsert = Omit<Visite, "id" | "created_at">;
@@ -97,3 +122,29 @@ export function isOrderEditable(status: string) {
 
 /** Commande livrée et payée = vente */
 export const SALE_STATUS = "Payée" as const;
+
+export type DiseaseCaseState = "Croissance" | "Diminution" | "Stable";
+
+export type DiseaseSummary = {
+  key: string;
+  name: string;
+  patientCount: number;
+  visitCount: number;
+  orderCount: number;
+  cities: string[];
+  quartiers: string[];
+  caseStatus: Record<string, number>;
+  trend: DiseaseCaseState;
+};
+
+export type CitySummary = {
+  key: string;
+  name: string;
+  patientCount: number;
+  visitCount: number;
+  orderCount: number;
+  diseases: string[];
+  communes: string[];
+  quartiers: string[];
+  caseStatus: Record<string, number>;
+};

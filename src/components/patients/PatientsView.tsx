@@ -1,10 +1,33 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, ChevronRight, Pencil, Plus, Search, Settings2, Trash2, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Camera,
+  ChevronRight,
+  Map,
+  Plus,
+  X,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { deleteStorageFile, uploadPatientPicture } from "@/lib/storage";
 import type { Patient, PatientInsert } from "@/lib/types";
+import { usePagination } from "@/hooks/usePagination";
+import { PageLoader } from "@/components/ui/NiceLoader";
+import { Pagination } from "@/components/ui/Pagination";
+import { GeoCombobox } from "@/components/ui/GeoCombobox";
+import { FilterToolbar } from "@/components/ui/FilterToolbar";
+import { SummaryKpis } from "@/components/ui/SummaryKpis";
+import {
+  GoogleMapMock,
+  useMapPointsFromPatients,
+} from "@/components/maps/GoogleMapMock";
+import {
+  findVilleByName,
+  searchCommunes,
+  searchQuartiers,
+  searchVilles,
+  syncPatientGeo,
+} from "@/lib/geo-store";
 import { formatDate, getInitials, patientFullName } from "@/lib/format";
 import { PatientDetailSidebar } from "./PatientDetailSidebar";
 import { AddVisitModal } from "./AddVisitModal";
@@ -19,6 +42,14 @@ const emptyForm: PatientInsert = {
   medical_history: "",
   picture_url: null,
   address: "",
+  city: "",
+  commune: "",
+  quartier: "",
+  allergies: "",
+  blood_type: "",
+  emergency_contact: "",
+  emergency_phone: "",
+  photos: [],
 };
 
 const avatarColors = [
@@ -44,6 +75,9 @@ export function PatientsView() {
   const [pictureFile, setPictureFile] = useState<File | null>(null);
   const [picturePreview, setPicturePreview] = useState<string | null>(null);
   const [removePicture, setRemovePicture] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [genderFilter, setGenderFilter] = useState("all");
+  const [cityFilter, setCityFilter] = useState("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function loadPatients() {
@@ -71,15 +105,114 @@ export function PatientsView() {
     };
   }, [picturePreview]);
 
+  const cityOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of patients) {
+      if (p.city?.trim()) set.add(p.city.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "fr"));
+  }, [patients]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return patients;
-    return patients.filter((p) =>
-      [p.first_name, p.last_name, p.phone, p.email, p.gender, p.address]
+    return patients.filter((p) => {
+      if (genderFilter !== "all" && (p.gender || "") !== genderFilter) {
+        return false;
+      }
+      if (
+        cityFilter !== "all" &&
+        (p.city || "").trim().toLowerCase() !== cityFilter.toLowerCase()
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return [
+        p.first_name,
+        p.last_name,
+        p.phone,
+        p.email,
+        p.gender,
+        p.address,
+        p.city,
+        p.commune,
+        p.quartier,
+        p.allergies,
+      ]
         .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
-    );
-  }, [patients, search]);
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [patients, search, genderFilter, cityFilter]);
+
+  const {
+    page,
+    setPage,
+    totalPages,
+    pageItems,
+    total,
+    from,
+    to,
+  } = usePagination(filtered, 20);
+
+  const mapPoints = useMapPointsFromPatients(patients);
+
+  const kpis = useMemo(() => {
+    const withCity = filtered.filter((p) => p.city).length;
+    const withPhoto = filtered.filter((p) => p.picture_url).length;
+    const women = filtered.filter((p) => p.gender === "Femme").length;
+    return [
+      {
+        label: "Total patients",
+        value: String(filtered.length),
+        hint: "Selon filtres",
+        iconSrc: "/icons/kpi-users.svg",
+        tone: "emerald" as const,
+      },
+      {
+        label: "Localisés",
+        value: String(withCity),
+        hint: "Ville renseignée",
+        iconSrc: "/icons/kpi-map.svg",
+        tone: "sky" as const,
+      },
+      {
+        label: "Avec photo",
+        value: String(withPhoto),
+        hint: "Portrait dossier",
+        iconSrc: "/icons/kpi-photo.svg",
+        tone: "violet" as const,
+      },
+      {
+        label: "Femmes",
+        value: String(women),
+        hint: `${filtered.length - women} autres`,
+        iconSrc: "/icons/kpi-person.svg",
+        tone: "amber" as const,
+      },
+    ];
+  }, [filtered]);
+
+  const searchCityOptions = useCallback(async (q: string) => {
+    const rows = await searchVilles(q);
+    return rows.map((r) => r.name);
+  }, []);
+
+  const searchCommuneOptions = useCallback(
+    async (q: string) => {
+      const ville = form.city ? await findVilleByName(form.city) : null;
+      const rows = await searchCommunes(q, ville?.id ?? null);
+      return rows.map((r) => r.name);
+    },
+    [form.city],
+  );
+
+  const searchQuartierOptions = useCallback(
+    async (q: string) => {
+      const ville = form.city ? await findVilleByName(form.city) : null;
+      const rows = await searchQuartiers(q, { villeId: ville?.id ?? null });
+      return rows.map((r) => r.name);
+    },
+    [form.city],
+  );
 
   function resetForm() {
     setEditing(null);
@@ -108,6 +241,14 @@ export function PatientsView() {
       medical_history: patient.medical_history ?? "",
       picture_url: patient.picture_url,
       address: patient.address ?? "",
+      city: patient.city ?? "",
+      commune: patient.commune ?? "",
+      quartier: patient.quartier ?? "",
+      allergies: patient.allergies ?? "",
+      blood_type: patient.blood_type ?? "",
+      emergency_contact: patient.emergency_contact ?? "",
+      emergency_phone: patient.emergency_phone ?? "",
+      photos: patient.photos ?? [],
     });
     setPictureFile(null);
     setRemovePicture(false);
@@ -159,7 +300,21 @@ export function PatientsView() {
       medical_history: form.medical_history || null,
       picture_url,
       address: form.address || null,
+      city: form.city || null,
+      commune: form.commune || null,
+      quartier: form.quartier || null,
+      allergies: form.allergies || null,
+      blood_type: form.blood_type || null,
+      emergency_contact: form.emergency_contact || null,
+      emergency_phone: form.emergency_phone || null,
+      photos: editing?.photos ?? form.photos ?? [],
     };
+
+    await syncPatientGeo({
+      city: payload.city,
+      commune: payload.commune,
+      quartier: payload.quartier,
+    });
 
     const result = editing
       ? await supabase.from("patients").update(payload).eq("id", editing.id)
@@ -207,6 +362,11 @@ export function PatientsView() {
     if (patient.picture_url) {
       await deleteStorageFile(patient.picture_url);
     }
+    if (Array.isArray(patient.photos)) {
+      for (const photo of patient.photos) {
+        await deleteStorageFile(photo.url);
+      }
+    }
 
     const { error: deleteError } = await supabase
       .from("patients")
@@ -234,14 +394,24 @@ export function PatientsView() {
             {filtered.length > 1 ? "s" : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-600"
-        >
-          <Plus strokeWidth={1.75} className="h-4 w-4" />
-          Ajouter un Patient
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setMapOpen(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-medium text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+          >
+            <Map strokeWidth={1.75} className="h-4 w-4" />
+            Carte
+          </button>
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-600"
+          >
+            <Plus strokeWidth={1.75} className="h-4 w-4" />
+            Ajouter un Patient
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -250,81 +420,135 @@ export function PatientsView() {
         </div>
       )}
 
-      <div className="relative max-w-md">
-        <Search
-          strokeWidth={1.75}
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-        />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher un patient…"
-          className="w-full rounded-2xl border-0 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 shadow-[0_8px_24px_rgba(15,23,42,0.04)] outline-none ring-emerald-500/20 placeholder:text-slate-400 focus:ring-4"
-        />
-      </div>
+      {loading ? (
+        <PageLoader label="Chargement des patients…" />
+      ) : (
+        <>
+      <SummaryKpis items={kpis} />
 
-      <div className="space-y-3">
-        <div className="hidden grid-cols-[1.4fr_1fr_1fr_0.8fr_0.9fr_80px] gap-3 px-5 text-xs font-medium uppercase tracking-wide text-slate-400 md:grid">
-          <span>Patient</span>
-          <span>Téléphone</span>
-          <span>Naissance</span>
-          <span>Genre</span>
-          <span>Statut</span>
-          <span className="text-right">Action</span>
-        </div>
+      <FilterToolbar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Nom, téléphone, ville, quartier…"
+        selects={[
+          {
+            id: "gender",
+            value: genderFilter,
+            onChange: setGenderFilter,
+            options: [
+              { value: "all", label: "Tous les genres" },
+              { value: "Femme", label: "Femme" },
+              { value: "Homme", label: "Homme" },
+              { value: "Autre", label: "Autre" },
+            ],
+          },
+          {
+            id: "city",
+            value: cityFilter,
+            onChange: setCityFilter,
+            widthClass: "w-44",
+            options: [
+              { value: "all", label: "Toutes les villes" },
+              ...cityOptions.map((c) => ({ value: c, label: c })),
+            ],
+          },
+        ]}
+      />
 
-        {loading && (
-          <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            Chargement…
-          </div>
-        )}
-        {!loading && filtered.length === 0 && (
-          <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+      <GoogleMapMock
+        points={mapPoints}
+        title="Répartition des patients"
+        subtitle="Google Maps mockup — Côte d'Ivoire"
+        heightClass="h-80"
+        showFullscreenButton
+        fullscreen={mapOpen}
+        onFullscreenChange={setMapOpen}
+      />
+
+      <div className="data-table">
+        {filtered.length === 0 && (
+          <div className="px-5 py-10 text-center text-sm text-slate-400">
             Aucun patient trouvé
           </div>
         )}
-
-        {filtered.map((patient, index) => (
-          <button
-            key={patient.id}
-            type="button"
-            onClick={() => setSelected(patient)}
-            className="table-card w-full grid-cols-1 text-left md:grid-cols-[1.4fr_1fr_1fr_0.8fr_0.9fr_80px]"
-          >
-            <div className="flex items-center gap-3">
-              <PatientAvatar
-                patient={patient}
-                colorClass={avatarColors[index % avatarColors.length]}
-              />
-              <div className="min-w-0">
-                <p className="truncate font-medium">
-                  {patientFullName(patient.first_name, patient.last_name)}
-                </p>
-                <p className="muted truncate text-xs text-slate-400">
-                  {patient.email || "Sans email"}
-                </p>
-              </div>
-            </div>
-            <span className="muted text-sm text-slate-600 md:text-inherit">
-              {patient.phone || "—"}
-            </span>
-            <span className="muted text-sm text-slate-600 md:text-inherit">
-              {formatDate(patient.birth_date)}
-            </span>
-            <span className="muted text-sm text-slate-600 md:text-inherit">
-              {patient.gender || "—"}
-            </span>
-            <span className="inline-flex items-center gap-2 text-sm">
-              <span className="status-dot-ok h-2 w-2 rounded-full bg-emerald-500" />
-              Suivi actif
-            </span>
-            <span className="flex items-center justify-end gap-1 text-slate-400 group-hover:text-white">
-              <Settings2 strokeWidth={1.75} className="h-4 w-4" />
-              <ChevronRight strokeWidth={1.75} className="h-4 w-4" />
-            </span>
-          </button>
-        ))}
+        {filtered.length > 0 && (
+          <div className="data-table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th>
+                  <th>Téléphone</th>
+                  <th>Localisation</th>
+                  <th>Naissance</th>
+                  <th>Genre</th>
+                  <th>Statut</th>
+                  <th className="text-right"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((patient, index) => (
+                  <tr
+                    key={patient.id}
+                    className="row-click"
+                    onClick={() => setSelected(patient)}
+                  >
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <PatientAvatar
+                          patient={patient}
+                          colorClass={avatarColors[index % avatarColors.length]}
+                        />
+                        <div className="min-w-0">
+                          <p className="cell-strong truncate">
+                            {patientFullName(
+                              patient.first_name,
+                              patient.last_name,
+                            )}
+                          </p>
+                          <p className="cell-muted truncate">
+                            {patient.email || "Sans email"}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{patient.phone || "—"}</td>
+                    <td>
+                      <p className="text-sm text-slate-700">
+                        {[patient.quartier, patient.commune, patient.city]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </p>
+                    </td>
+                    <td>{formatDate(patient.birth_date)}</td>
+                    <td>{patient.gender || "—"}</td>
+                    <td>
+                      <span className="inline-flex items-center gap-2 text-sm text-emerald-700">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        Suivi actif
+                      </span>
+                    </td>
+                    <td className="text-right text-slate-300">
+                      <ChevronRight strokeWidth={1.75} className="ml-auto h-4 w-4" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        from={from}
+        to={to}
+        onPageChange={setPage}
+        label="patients"
+      />
+        </>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/25 backdrop-blur-[1px]">
@@ -337,7 +561,7 @@ export function PatientsView() {
               setOpen(false);
             }}
           />
-          <aside className="relative z-10 flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+          <aside className="relative z-10 flex h-full w-full max-w-xl flex-col bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -453,16 +677,37 @@ export function PatientsView() {
                     className="field"
                   />
                 </Field>
+                <GeoCombobox
+                  label="Ville"
+                  required
+                  value={form.city ?? ""}
+                  onChange={(city) => setForm((f) => ({ ...f, city }))}
+                  onSearch={searchCityOptions}
+                  placeholder="Abidjan, Bouaké…"
+                />
+                <GeoCombobox
+                  label="Commune"
+                  value={form.commune ?? ""}
+                  onChange={(commune) => setForm((f) => ({ ...f, commune }))}
+                  onSearch={searchCommuneOptions}
+                  placeholder="Ex: Cocody, Plateau…"
+                />
+                <GeoCombobox
+                  label="Quartier"
+                  value={form.quartier ?? ""}
+                  onChange={(quartier) => setForm((f) => ({ ...f, quartier }))}
+                  onSearch={searchQuartierOptions}
+                  placeholder="Médina, Plateau…"
+                />
                 <Field label="Adresse">
                   <textarea
-                    required
                     rows={2}
                     value={form.address ?? ""}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, address: e.target.value }))
                     }
                     className="field resize-none"
-                    placeholder="Quartier, avenue, commune…"
+                    placeholder="Rue, avenue, repères…"
                   />
                 </Field>
                 <Field label="Email">
@@ -498,6 +743,62 @@ export function PatientsView() {
                       <option>Homme</option>
                       <option>Autre</option>
                     </select>
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Groupe sanguin">
+                    <select
+                      value={form.blood_type ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, blood_type: e.target.value }))
+                      }
+                      className="field"
+                    >
+                      <option value="">—</option>
+                      {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map(
+                        (g) => (
+                          <option key={g} value={g}>
+                            {g}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </Field>
+                  <Field label="Allergies">
+                    <input
+                      value={form.allergies ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, allergies: e.target.value }))
+                      }
+                      className="field"
+                      placeholder="Pénicilline, pollen…"
+                    />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Contact d'urgence">
+                    <input
+                      value={form.emergency_contact ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          emergency_contact: e.target.value,
+                        }))
+                      }
+                      className="field"
+                    />
+                  </Field>
+                  <Field label="Tél. urgence">
+                    <input
+                      value={form.emergency_phone ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          emergency_phone: e.target.value,
+                        }))
+                      }
+                      className="field"
+                    />
                   </Field>
                 </div>
                 <Field label="Antécédents médicaux">
@@ -546,6 +847,12 @@ export function PatientsView() {
             openEdit(selected);
           }}
           onDelete={() => handleDelete(selected)}
+          onPatientUpdated={(p) => {
+            setSelected(p);
+            setPatients((list) =>
+              list.map((item) => (item.id === p.id ? p : item)),
+            );
+          }}
         />
       )}
 

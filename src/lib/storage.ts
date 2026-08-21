@@ -40,11 +40,19 @@ async function uploadCompressed(
     });
 
   if (error) {
-    return { url: null as string | null, error: error.message };
+    return {
+      url: null as string | null,
+      path: null as string | null,
+      error: error.message,
+    };
   }
 
   const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-  return { url: data.publicUrl, error: null as string | null };
+  return {
+    url: data.publicUrl,
+    path,
+    error: null as string | null,
+  };
 }
 
 export async function uploadPatientPicture(file: File) {

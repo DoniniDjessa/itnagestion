@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import type { Patient, VisiteInsert } from "@/lib/types";
+import { CASE_STATUS_OPTIONS } from "@/lib/analytics";
 import { patientFullName } from "@/lib/format";
 
 type Props = {
@@ -23,6 +24,7 @@ const emptyVisit = {
   treatment: "",
   notes: "",
   status: "Terminée",
+  case_status: "Actif",
 };
 
 export function AddVisitModal({ patient, onClose, onCreated }: Props) {
@@ -47,6 +49,7 @@ export function AddVisitModal({ patient, onClose, onCreated }: Props) {
       treatment: form.treatment || null,
       notes: form.notes || null,
       status: form.status,
+      case_status: form.case_status || null,
     };
 
     const { error: insertError } = await supabase
@@ -198,6 +201,21 @@ export function AddVisitModal({ patient, onClose, onCreated }: Props) {
                 }
                 className="field resize-none"
               />
+            </Field>
+            <Field label="État du cas">
+              <select
+                value={form.case_status}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, case_status: e.target.value }))
+                }
+                className="field"
+              >
+                {CASE_STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Traitement / consignes">
               <textarea

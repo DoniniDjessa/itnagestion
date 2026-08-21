@@ -1,13 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Banknote,
-  Package,
-  Receipt,
-  Search,
-  ShoppingBag,
-} from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import type { Commande, OrderItem } from "@/lib/types";
 import { SALE_STATUS } from "@/lib/types";
@@ -19,6 +12,11 @@ import {
   type DatePreset,
 } from "@/lib/date-filters";
 import { formatCurrency, formatDate, patientFullName } from "@/lib/format";
+import { usePagination } from "@/hooks/usePagination";
+import { PageLoader } from "@/components/ui/NiceLoader";
+import { Pagination } from "@/components/ui/Pagination";
+import { SummaryKpis } from "@/components/ui/SummaryKpis";
+import { FilterToolbar, DatePresetChips } from "@/components/ui/FilterToolbar";
 
 const presets: { id: DatePreset; label: string }[] = [
   { id: "avant_hier", label: "Avant-hier" },
@@ -89,6 +87,16 @@ export function VentesView() {
     );
   }, [sales, range, productQuery]);
 
+  const {
+    page,
+    setPage,
+    totalPages,
+    pageItems,
+    total,
+    from: pageFrom,
+    to: pageTo,
+  } = usePagination(filtered, 10);
+
   const summary = useMemo(() => {
     const total = filtered.reduce(
       (sum, s) => sum + Number(s.total_amount || 0),
@@ -123,47 +131,48 @@ export function VentesView() {
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard
-          label="Chiffre d'affaires"
-          value={formatCurrency(summary.total)}
-          icon={Banknote}
+      <SummaryKpis
+        items={[
+          {
+            label: "Chiffre d'affaires",
+            value: formatCurrency(summary.total),
+            iconSrc: "/icons/kpi-money.svg",
+            tone: "emerald",
+          },
+          {
+            label: "Nombre de ventes",
+            value: String(summary.count),
+            iconSrc: "/icons/kpi-receipt.svg",
+            tone: "blue",
+          },
+          {
+            label: "Articles vendus",
+            value: String(summary.itemsCount),
+            iconSrc: "/icons/kpi-products.svg",
+            tone: "violet",
+          },
+          {
+            label: "Panier moyen",
+            value: formatCurrency(summary.avg),
+            iconSrc: "/icons/kpi-cart.svg",
+            tone: "amber",
+          },
+        ]}
+      />
+
+      <FilterToolbar
+        search={productQuery}
+        onSearchChange={setProductQuery}
+        searchPlaceholder="Produit, code, prix…"
+      >
+        <DatePresetChips
+          value={preset}
+          onChange={(v) => setPreset(v as DatePreset)}
+          options={presets.map((p) => ({ id: p.id, label: p.label }))}
         />
-        <SummaryCard
-          label="Nombre de ventes"
-          value={String(summary.count)}
-          icon={Receipt}
-        />
-        <SummaryCard
-          label="Articles vendus"
-          value={String(summary.itemsCount)}
-          icon={Package}
-        />
-        <SummaryCard
-          label="Panier moyen"
-          value={formatCurrency(summary.avg)}
-          icon={ShoppingBag}
-        />
-      </section>
+      </FilterToolbar>
 
       <section className="space-y-4 rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)] sm:p-5">
-        <div className="flex flex-wrap gap-2">
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPreset(p.id)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-medium transition sm:text-sm ${
-                preset === p.id
-                  ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/25"
-                  : "bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {preset === "custom_day" && (
             <label className="block space-y-1">
@@ -213,112 +222,77 @@ export function VentesView() {
               />
             </label>
           )}
-
-          <label className="block space-y-1 sm:col-span-2 lg:col-span-2">
-            <span className="text-xs font-medium text-slate-500">
-              Produit (nom, code, prix)
-            </span>
-            <div className="relative">
-              <Search
-                strokeWidth={1.75}
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                value={productQuery}
-                onChange={(e) => setProductQuery(e.target.value)}
-                placeholder="Ex: Paracétamol, PRD-01, 500…"
-                className="field pl-10"
-              />
-            </div>
-          </label>
         </div>
       </section>
 
-      <div className="space-y-3">
-        <div className="hidden grid-cols-[0.9fr_1.1fr_1fr_0.8fr_1.4fr] gap-3 px-5 text-xs font-medium uppercase tracking-wide text-slate-400 lg:grid">
-          <span>Référence</span>
-          <span>Patient</span>
-          <span>Date</span>
-          <span>Montant</span>
-          <span>Produits</span>
-        </div>
-
-        {loading && (
-          <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            Chargement…
-          </div>
-        )}
+      <div className="data-table">
+        {loading && <PageLoader label="Chargement des ventes…" />}
         {!loading && filtered.length === 0 && (
-          <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+          <div className="px-5 py-10 text-center text-sm text-slate-400">
             Aucune vente pour ces filtres. Passez une commande en statut{" "}
             <span className="font-medium text-emerald-600">Payée</span>.
           </div>
         )}
-
-        {filtered.map((sale) => (
-          <article
-            key={sale.id}
-            className="rounded-3xl bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"
-          >
-            <div className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr_1fr_0.8fr_1.4fr] lg:items-center">
-              <p className="font-semibold text-slate-900">
-                {sale.reference_id}
-              </p>
-              <p className="text-sm text-slate-600">
-                {sale.patients
-                  ? patientFullName(
-                      sale.patients.first_name,
-                      sale.patients.last_name,
-                    )
-                  : "—"}
-              </p>
-              <p className="text-sm text-slate-600">
-                {formatDate(sale.created_at)}
-              </p>
-              <p className="font-semibold text-emerald-600">
-                {formatCurrency(Number(sale.total_amount))}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {(sale.items || []).map((item, i) => (
-                  <span
-                    key={i}
-                    className="rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700"
-                  >
-                    {item.code ? `${item.code} · ` : ""}
-                    {item.name} ×{item.qty}
-                  </span>
+        {!loading && filtered.length > 0 && (
+          <div className="data-table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Référence</th>
+                  <th>Patient</th>
+                  <th>Date</th>
+                  <th>Montant</th>
+                  <th>Produits</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((sale) => (
+                  <tr key={sale.id}>
+                    <td className="cell-strong">{sale.reference_id}</td>
+                    <td>
+                      {sale.patients
+                        ? patientFullName(
+                            sale.patients.first_name,
+                            sale.patients.last_name,
+                          )
+                        : "—"}
+                    </td>
+                    <td>{formatDate(sale.created_at)}</td>
+                    <td className="font-semibold text-emerald-600">
+                      {formatCurrency(Number(sale.total_amount))}
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(sale.items || []).map((item, i) => (
+                          <span
+                            key={i}
+                            className="rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700"
+                          >
+                            {item.code ? `${item.code} · ` : ""}
+                            {item.name} ×{item.qty}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            </div>
-          </article>
-        ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-    </div>
-  );
-}
 
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-}) {
-  return (
-    <article className="rounded-3xl bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs text-slate-400">{label}</p>
-          <p className="mt-1.5 text-lg font-semibold tracking-tight text-slate-900">
-            {value}
-          </p>
-        </div>
-        <div className="rounded-2xl bg-emerald-50 p-2 text-emerald-600">
-          <Icon strokeWidth={1.75} className="h-4 w-4" />
-        </div>
-      </div>
-    </article>
+      {!loading && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          from={pageFrom}
+          to={pageTo}
+          onPageChange={setPage}
+          label="ventes"
+        />
+      )}
+    </div>
   );
 }

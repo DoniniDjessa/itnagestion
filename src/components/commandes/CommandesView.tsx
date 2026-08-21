@@ -12,6 +12,17 @@ import type {
 } from "@/lib/types";
 import { isOrderEditable, SALE_STATUS } from "@/lib/types";
 import { formatCurrency, formatDate, patientFullName } from "@/lib/format";
+import { usePagination } from "@/hooks/usePagination";
+import { PageLoader } from "@/components/ui/NiceLoader";
+import { Pagination } from "@/components/ui/Pagination";
+import { SummaryKpis } from "@/components/ui/SummaryKpis";
+import { FilterToolbar, DatePresetChips } from "@/components/ui/FilterToolbar";
+import {
+  currentMonthValue,
+  getPresetRange,
+  inDateRange,
+  type DatePreset,
+} from "@/lib/date-filters";
 
 const statusFilters = [
   "Toutes",
@@ -51,6 +62,9 @@ export function CommandesView() {
   const [produits, setProduits] = useState<Produit[]>([]);
   const [filter, setFilter] =
     useState<(typeof statusFilters)[number]>("Toutes");
+  const [search, setSearch] = useState("");
+  const [preset, setPreset] = useState<DatePreset | "all">("all");
+  const [month, setMonth] = useState(currentMonthValue());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,10 +119,76 @@ export function CommandesView() {
     load();
   }, []);
 
+  const range = useMemo(
+    () =>
+      preset === "all"
+        ? null
+        : getPresetRange(preset, { month }),
+    [preset, month],
+  );
+
   const filtered = useMemo(() => {
-    if (filter === "Toutes") return commandes;
-    return commandes.filter((c) => c.status === filter);
-  }, [commandes, filter]);
+    const q = search.trim().toLowerCase();
+    return commandes.filter((c) => {
+      if (filter !== "Toutes" && c.status !== filter) return false;
+      if (!inDateRange(c.created_at, range)) return false;
+      if (!q) return true;
+      const patientName = c.patients
+        ? `${c.patients.first_name} ${c.patients.last_name}`.toLowerCase()
+        : "";
+      return (
+        c.reference_id.toLowerCase().includes(q) ||
+        patientName.includes(q) ||
+        (c.disease_to_treat || "").toLowerCase().includes(q)
+      );
+    });
+  }, [commandes, filter, search, range]);
+
+  const orderKpis = useMemo(() => {
+    const pending = filtered.filter((c) => c.status === "En attente").length;
+    const paid = filtered.filter((c) => c.status === "Payée").length;
+    const totalAmt = filtered.reduce(
+      (s, c) => s + Number(c.total_amount || 0),
+      0,
+    );
+    return [
+      {
+        label: "Commandes",
+        value: String(filtered.length),
+        hint: "Selon filtres",
+        iconSrc: "/icons/kpi-orders.svg",
+        tone: "blue" as const,
+      },
+      {
+        label: "En attente",
+        value: String(pending),
+        iconSrc: "/icons/kpi-pending.svg",
+        tone: "amber" as const,
+      },
+      {
+        label: "Payées",
+        value: String(paid),
+        iconSrc: "/icons/kpi-paid.svg",
+        tone: "emerald" as const,
+      },
+      {
+        label: "Montant",
+        value: formatCurrency(totalAmt),
+        iconSrc: "/icons/kpi-money.svg",
+        tone: "violet" as const,
+      },
+    ];
+  }, [filtered]);
+
+  const {
+    page,
+    setPage,
+    totalPages,
+    pageItems,
+    total,
+    from,
+    to,
+  } = usePagination(filtered, 10);
 
   const totalAmount = items.reduce(
     (sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0),
@@ -334,6 +414,33 @@ export function CommandesView() {
         </div>
       )}
 
+      <SummaryKpis items={orderKpis} />
+
+      <FilterToolbar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Référence, patient, maladie…"
+      >
+        <DatePresetChips
+          value={preset}
+          onChange={(v) => setPreset(v as DatePreset | "all")}
+          options={[
+            { id: "all", label: "Toutes dates" },
+            { id: "aujourd_hui", label: "Aujourd'hui" },
+            { id: "hier", label: "Hier" },
+            { id: "month", label: "Mois" },
+          ]}
+        />
+        {preset === "month" && (
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="field h-10 w-40 py-0"
+          />
+        )}
+      </FilterToolbar>
+
       <div className="flex flex-wrap gap-5 border-b border-slate-200/80">
         {statusFilters.map((status) => (
           <button
@@ -354,102 +461,112 @@ export function CommandesView() {
         ))}
       </div>
 
-      <div className="space-y-3">
-        <div className="hidden grid-cols-[1fr_1.2fr_0.9fr_0.8fr_1fr_88px] gap-3 px-5 text-xs font-medium uppercase tracking-wide text-slate-400 lg:grid">
-          <span>Référence</span>
-          <span>Patient</span>
-          <span>Date</span>
-          <span>Montant</span>
-          <span>Statut</span>
-          <span className="text-right">Action</span>
-        </div>
-
-        {loading && (
-          <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400">
-            Chargement…
-          </div>
-        )}
+      <div className="data-table">
+        {loading && <PageLoader label="Chargement des commandes…" />}
         {!loading && filtered.length === 0 && (
-          <div className="rounded-3xl bg-white px-5 py-10 text-center text-sm text-slate-400">
+          <div className="px-5 py-10 text-center text-sm text-slate-400">
             Aucune commande
           </div>
         )}
-
-        {filtered.map((commande) => {
-          const meta = statusMeta[commande.status] ?? statusMeta.Annulée;
-          const mutable = isOrderEditable(commande.status);
-          return (
-            <div
-              key={commande.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => openOrder(commande)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  openOrder(commande);
-                }
-              }}
-              className="table-card w-full cursor-pointer grid-cols-1 text-left lg:grid-cols-[1fr_1.2fr_0.9fr_0.8fr_1fr_88px]"
-            >
-              <span className="min-w-0 truncate font-semibold">
-                {commande.reference_id}
-              </span>
-              <span className="muted min-w-0 truncate text-sm text-slate-600">
-                {commande.patients
-                  ? patientFullName(
-                      commande.patients.first_name,
-                      commande.patients.last_name,
-                    )
-                  : "—"}
-              </span>
-              <span className="muted text-sm text-slate-600">
-                {formatDate(commande.created_at)}
-              </span>
-              <span className="font-semibold tabular-nums">
-                {formatCurrency(Number(commande.total_amount))}
-              </span>
-              <span className="inline-flex items-center gap-2 text-sm">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
-                <span className="truncate">{meta.label}</span>
-              </span>
-              <div
-                className="flex items-center justify-end gap-1"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {mutable && (
-                  <>
-                    <button
-                      type="button"
-                      title="Modifier"
-                      onClick={() => openEditOrder(commande)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-white/20 hover:text-inherit"
+        {!loading && filtered.length > 0 && (
+          <div className="data-table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Référence</th>
+                  <th>Patient</th>
+                  <th>Date</th>
+                  <th>Montant</th>
+                  <th>Statut</th>
+                  <th className="text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((commande) => {
+                  const meta = statusMeta[commande.status] ?? statusMeta.Annulée;
+                  const mutable = isOrderEditable(commande.status);
+                  return (
+                    <tr
+                      key={commande.id}
+                      className="row-click"
+                      onClick={() => openOrder(commande)}
                     >
-                      <Pencil strokeWidth={1.75} className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      title="Supprimer"
-                      onClick={() => handleDeleteOrder(commande)}
-                      className="rounded-lg p-1.5 text-slate-400 hover:bg-white/20 hover:text-inherit"
-                    >
-                      <Trash2 strokeWidth={1.75} className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  title="Ouvrir"
-                  onClick={() => openOrder(commande)}
-                  className="rounded-lg p-1.5 text-slate-400 hover:bg-white/20"
-                >
-                  <ChevronRight strokeWidth={1.75} className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          );
-        })}
+                      <td className="cell-strong">{commande.reference_id}</td>
+                      <td>
+                        {commande.patients
+                          ? patientFullName(
+                              commande.patients.first_name,
+                              commande.patients.last_name,
+                            )
+                          : "—"}
+                      </td>
+                      <td>{formatDate(commande.created_at)}</td>
+                      <td className="cell-strong tabular-nums">
+                        {formatCurrency(Number(commande.total_amount))}
+                      </td>
+                      <td>
+                        <span className="inline-flex items-center gap-2 text-sm">
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`}
+                          />
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td>
+                        <div
+                          className="flex items-center justify-end gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {mutable && (
+                            <>
+                              <button
+                                type="button"
+                                title="Modifier"
+                                onClick={() => openEditOrder(commande)}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                              >
+                                <Pencil strokeWidth={1.75} className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Supprimer"
+                                onClick={() => handleDeleteOrder(commande)}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 strokeWidth={1.75} className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            title="Ouvrir"
+                            onClick={() => openOrder(commande)}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-emerald-50"
+                          >
+                            <ChevronRight strokeWidth={1.75} className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {!loading && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          from={from}
+          to={to}
+          onPageChange={setPage}
+          label="commandes"
+        />
+      )}
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 p-4 backdrop-blur-[1px]">
